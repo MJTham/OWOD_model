@@ -1,0 +1,7 @@
+streamlit
+ultralytics
+torch
+torchvision
+openai-clip
+chromadb
+Pillow
