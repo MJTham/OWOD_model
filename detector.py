@@ -11,6 +11,12 @@ class YOLODetector:
         """
         self.model = YOLO(model_path)
 
+    def get_class_names(self):
+        """
+        Returns the class names of the model.
+        """
+        return self.model.names
+
     def detect(self, image: np.ndarray):
         """
         Performs object detection on the given image.

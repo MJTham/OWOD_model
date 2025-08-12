@@ -1,5 +1,6 @@
 import chromadb
 import uuid
+import torch
 
 class VectorDatabase:
     def __init__(self, path="./data/chroma_db"):
@@ -24,11 +25,11 @@ class VectorDatabase:
 
         self.collection.add(
             embeddings=[embedding],
-            metadatas={"label": label},
+            metadatas=[{"label": label}],
             ids=[str(uuid.uuid4())]
         )
 
-    def query_object(self, embedding, n_results=1, min_distance=0.5):
+    def query_object(self, embedding, n_results=1, min_distance=0.8):
         """
         Queries the database for similar objects.
         Args:
@@ -41,21 +42,35 @@ class VectorDatabase:
         if isinstance(embedding, torch.Tensor):
             embedding = embedding.squeeze().tolist()
 
-        results = self.collection.query(
-            query_embeddings=[embedding],
-            n_results=n_results
-        )
+        try:
+            results = self.collection.query(
+                query_embeddings=[embedding],
+                n_results=n_results
+            )
 
-        if results['ids'] and results['distances']:
-            # Assuming we only care about the top result for now
-            label = results['metadatas'][0][0]['label']
-            distance = results['distances'][0][0]
-            if distance <= min_distance:
-                return label, distance
-        return None, None
+            if results['ids'] and results['ids'][0]:
+                # Assuming we only care about the top result for now
+                label = results['metadatas'][0][0]['label']
+                distance = results['distances'][0][0]
+                if distance <= min_distance:
+                    return label, distance
+            return None, None
+        except Exception as e:
+            print(f"An error occurred during query: {e}")
+            return None, None
+
+    def query_object_by_label(self, label: str):
+        """
+        Queries the database for a specific label.
+        Args:
+            label (str): The label to query.
+        Returns:
+            dict: The query result, or None if not found.
+        """
+        result = self.collection.get(where={"label": label})
+        return result if result['ids'] else None
 
 if __name__ == '__main__':
-    import torch
     # Example usage:
     db = VectorDatabase()
 

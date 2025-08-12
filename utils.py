@@ -15,31 +15,22 @@ def crop_image(image: np.ndarray, box: list):
     cropped_np = image[y1:y2, x1:x2]
     return Image.fromarray(cv2.cvtColor(cropped_np, cv2.COLOR_BGR2RGB))
 
-def extract_frames_from_video(video_path: str, interval: int = 1):
-    """
-    Extracts frames from a video file.
-    Args:
-        video_path (str): Path to the video file.
-        interval (int): Interval at which to extract frames (e.g., 1 for every frame, 30 for every 30th frame).
-    Returns:
-        list: A list of numpy arrays, each representing a frame.
-    """
+def extract_frames_from_video(video_path):
     frames = []
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         print(f"Error: Could not open video {video_path}")
-        return frames
+        return frames, 0
 
-    frame_count = 0
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
     while True:
         ret, frame = cap.read()
         if not ret:
             break
-        if frame_count % interval == 0:
-            frames.append(frame)
-        frame_count += 1
+        frames.append(frame)
     cap.release()
-    return frames
+    return frames, fps
 
 if __name__ == '__main__':
     # Example usage for crop_image:
