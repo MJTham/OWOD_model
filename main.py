@@ -1,8 +1,11 @@
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import streamlit as st
 from PIL import Image
 import numpy as np
 import cv2
 import os
+import imageio
 
 from detector import YOLODetector
 from classifier import CLIPClassifier
@@ -26,6 +29,15 @@ detector = get_detector()
 classifier = get_classifier()
 db = get_database()
 
+# Pre-populate the database with YOLO class names
+with st.spinner("Loading model classes into database..."):
+    class_names = detector.get_class_names()
+    for class_id, name in class_names.items():
+        # Check if the class name is already in the database
+        if not db.query_object_by_label(name):
+            text_embedding = classifier.get_text_embedding(name)
+            db.add_object(text_embedding, name)
+
 st.title("Open-World Object Detection System")
 
 # File Upload
@@ -42,8 +54,8 @@ if uploaded_file is not None:
         image_np = np.array(image)
         image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
 
-        st.subheader("Detecting Objects...")
-        detections = detector.detect(image_np)
+        with st.spinner("Detecting objects in image..."):
+            detections = detector.detect(image_np)
 
         if detections:
             st.subheader("Detected Objects:")
@@ -79,18 +91,67 @@ if uploaded_file is not None:
             st.write("No objects detected.")
 
     elif "video" in file_type:
-        st.write("Video processing is not fully implemented yet. Displaying first frame.")
-        # Save the uploaded video temporarily to process it
-        with open("temp_video.mp4", "wb") as f:
-            f.write(uploaded_file.getbuffer())
+        st.subheader("Processing Video...")
+        temp_video_path = "temp_video.mp4"
+        try:
+            with open(temp_video_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+        except Exception as e:
+            st.error(f"Error saving video file: {e}")
+            st.stop()
+
+        with st.spinner("Extracting frames and processing video... This may take a while."):
+            frames, original_fps = extract_frames_from_video(temp_video_path)
+            
+            if frames:
+                st.write(f"Extracted {len(frames)} frames. Processing each frame...")
+                processed_frames = []
+                for i, frame in enumerate(frames):
+                    # Convert frame to RGB for PIL and then back to BGR for OpenCV if needed
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    
+                    detections = detector.detect(frame)
+                    
+                    display_frame = frame.copy()
+                    if detections:
+                        for det in detections:
+                            x1, y1, x2, y2 = det['box']
+                            conf = det['conf']
+                            
+                            cropped_img_pil = crop_image(frame, det['box'])
+                            img_embedding = classifier.get_image_embedding(cropped_img_pil)
+                            
+                            label, distance = db.query_object(img_embedding)
+                            print(f"Query result: label={label}, distance={distance}")
+                            
+                            if label:
+                                display_label = f"{label} ({conf:.2f})"
+                            else:
+                                display_label = f"Unknown ({conf:.2f})"
+
+                            cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            cv2.putText(display_frame, display_label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                    
+                    processed_frames.append(cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB))
+                
+                if processed_frames:
+                    # Create a video from processed frames
+                    output_video_path = "output.mp4"
+                    imageio.mimwrite(output_video_path, processed_frames, fps=original_fps, format='mp4')
+
+                    # Read the video file into memory
+                    with open(output_video_path, "rb") as f:
+                        video_bytes = f.read()
+
+                    st.subheader("Processed Video:")
+                    st.video(video_bytes)
+
+                else:
+                    st.write("No frames were processed to create a video.")
+            else:
+                st.write("Could not extract frames from video.")
         
-        frames = extract_frames_from_video("temp_video.mp4", interval=30) # Process every 30th frame
-        if frames:
-            st.image(cv2.cvtColor(frames[0], cv2.COLOR_BGR2RGB), caption="First Frame of Video", use_column_width=True)
-            # Further processing for video frames would go here
-            # For each frame, you would run detection, classification, and learning
-        else:
-            st.write("Could not extract frames from video.")
+        # Clean up temporary files
+        os.remove(temp_video_path)
+
         
-        # Clean up temporary file
-        os.remove("temp_video.mp4")
